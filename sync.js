@@ -16,10 +16,17 @@ const loginBtn = document.getElementById("loginBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const setText = msg => { text.textContent = msg; };
 
-// 以前のアドレス（GitHub Pages）で開いたときは、新しいアドレスへ案内する
-const onFirebaseHost = /\.(web\.app|firebaseapp\.com)$/.test(location.hostname);
+// ログインは APP_URL のドメインでだけ使える（Google に登録された戻り先と同じにするため）
+const appHost = new URL(APP_URL).hostname;
+const onAppHost = location.hostname === appHost;
 const onLocal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
-if (!onFirebaseHost && !onLocal) {
+if (location.hostname.endsWith(".web.app")) {
+  // 同じアプリの別アドレス。正式なアドレスへ移動する
+  location.replace(APP_URL);
+  throw new Error("redirect");
+}
+if (!onAppHost && !onLocal) {
+  // 以前のアドレス（GitHub Pages）で開いたときは、新しいアドレスへ案内する
   bar.classList.add("moved");
   setText("家計簿は新しいアドレスに引っ越しました。同期はそちらで使えます。");
   loginBtn.textContent = "新しいアドレスを開く";
@@ -28,8 +35,8 @@ if (!onFirebaseHost && !onLocal) {
   throw new Error("old host");  // ここで同期の準備をやめる
 }
 
-// ログインのページを同じドメインにすると、iPhone のホーム画面アプリでも確実に動く
-const app = initializeApp({ ...firebaseConfig, authDomain: onFirebaseHost ? location.hostname : firebaseConfig.authDomain });
+// アプリとログインのページが同じドメインなので、iPhone のホーム画面アプリでも確実に動く
+const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const fs = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
 
