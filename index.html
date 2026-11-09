@@ -51,6 +51,12 @@
   .muted { color: var(--muted); }
   .small { font-size: 12px; }
 
+  .sync-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: -4px 0 12px; }
+  .sync-bar span { flex: 1 1 160px; }
+  .sync-bar button { padding: 6px 12px; font-size: 14px; }
+  .sync-bar #loginBtn { background: var(--text); color: #000; font-weight: 700; border-color: var(--text); }
+  .sync-bar.moved { background: var(--card2); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; color: var(--text); }
+
   /* 今月のまとめ */
   .hero-label { color: var(--muted); font-size: 13px; }
   .hero-value { font-size: 34px; font-weight: 800; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
@@ -154,6 +160,12 @@
       <button id="next" class="ghost" aria-label="次の月">▶</button>
     </div>
   </header>
+
+  <div class="sync-bar" id="syncBar">
+    <span id="syncText">この端末の中だけに保存中</span>
+    <button id="loginBtn" hidden>Googleでログインして同期</button>
+    <button id="logoutBtn" class="ghost" hidden>ログアウト</button>
+  </div>
 
   <!-- 今月のまとめ -->
   <div class="card">
@@ -269,9 +281,13 @@ function load() {
   d ||= {};
   return { entries: d.entries || [], budgets: d.budgets || {}, fixed: d.fixed || [] };
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { alert("保存に失敗しました: " + e.message); } }
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { alert("保存に失敗しました: " + e.message); }
+  window.kakeiboSync?.push();   // ログイン中ならネットにも送る（sync.js）
+}
 
 let db = load();
+window.kakeibo = { get db() { return db; }, set db(v) { db = v; }, save: () => save(), render: () => render() };
 const today = new Date();
 let ym = { y: today.getFullYear(), m: today.getMonth() + 1 };
 const ymKey = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
@@ -507,7 +523,9 @@ ff.addEventListener("submit", e => {
   if (!editingFixed) {
     db.fixed.push({ id: newId(), ...data, start: k, end: null, amounts: [{ from: k, amount }], overrides: {} });
   } else {
-    const it = editingFixed;
+    // 編集中にほかの端末から同期されても、最新のデータに書き込む
+    const it = db.fixed.find(x => x.id === editingFixed.id);
+    if (!it) { dlg.close(); return; }
     Object.assign(it, data);
     if (amount !== baseAmount(it, k)) {
       it.amounts = it.amounts.filter(a => a.from !== k);
@@ -521,7 +539,8 @@ ff.addEventListener("submit", e => {
 });
 
 document.getElementById("fixedStop").onclick = () => {
-  const it = editingFixed; if (!it) return;
+  const it = editingFixed && db.fixed.find(x => x.id === editingFixed.id);
+  if (!it) { dlg.close(); return; }
   const k = curKey();
   if (!confirm(`「${it.name}」を${ym.y}年${ym.m}月以降の計算から外します。それより前の月には残ります。よろしいですか？`)) return;
   if (k <= it.start) db.fixed = db.fixed.filter(x => x !== it);
@@ -732,5 +751,6 @@ if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
 }
 navigator.storage?.persist?.().catch(() => {});
 </script>
+<script type="module" src="sync.js"></script>
 </body>
 </html>
