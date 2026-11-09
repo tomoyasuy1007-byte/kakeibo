@@ -1,6 +1,6 @@
 // オフラインでも開けるようにアプリのファイルを保存しておく。
 // ファイルを更新したら VERSION を上げる。
-const VERSION = "kakeibo-v1";
+const VERSION = "kakeibo-v2";
 const FILES = ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
