@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>家計簿</title>
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="家計簿">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #6b7280;
+    --line: #e5e7eb; --accent: #2563eb; --income: #059669; --expense: #dc2626;
+    --bar: #93c5fd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1a1f26; --text: #e6e8eb; --muted: #9aa3af;
+      --line: #2b323c; --accent: #60a5fa; --income: #34d399; --expense: #f87171;
+      --bar: #1e40af;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 15px; line-height: 1.5;
+  }
+  .wrap {
+    max-width: 880px; margin: 0 auto;
+    padding: calc(20px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+             calc(60px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  }
+  /* iPhone で入力時に画面が拡大されないよう 16px 以上にする */
+  input, select { font-size: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0; }
+  .month-nav { display: flex; align-items: center; gap: 8px; }
+  .month-nav span { font-weight: 600; min-width: 110px; text-align: center; }
+  button, input, select {
+    font: inherit; color: inherit; background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .summary .card { margin: 0; }
+  .summary .label { color: var(--muted); font-size: 13px; }
+  .summary .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .income { color: var(--income); } .expense { color: var(--expense); }
+  form.entry { display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 8px; }
+  form.entry .memo { grid-column: 1 / 4; }
+  .type-toggle { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .type-toggle label { padding: 8px 12px; cursor: pointer; }
+  .type-toggle input { display: none; }
+  .type-toggle input:checked + span { font-weight: 700; }
+  .type-toggle label:has(input[value="expense"]:checked) { background: var(--expense); color: #fff; }
+  .type-toggle label:has(input[value="income"]:checked) { background: var(--income); color: #fff; }
+  .cat-row { display: grid; grid-template-columns: 90px 1fr 100px; gap: 8px; align-items: center; margin: 6px 0; }
+  .cat-bar { height: 12px; background: var(--line); border-radius: 6px; overflow: hidden; }
+  .cat-bar div { height: 100%; background: var(--accent); }
+  .cat-row .amt { text-align: right; font-variant-numeric: tabular-nums; }
+  .budget-note { font-size: 12px; color: var(--muted); }
+  .over .cat-bar div { background: var(--expense); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-size: 13px; font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.del button { padding: 2px 8px; font-size: 13px; }
+  .empty { color: var(--muted); text-align: center; padding: 20px; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chart { display: flex; align-items: flex-end; gap: 6px; height: 140px; padding-top: 8px; }
+  .chart .col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+  .chart .bars { display: flex; gap: 2px; align-items: flex-end; height: 100%; width: 100%; justify-content: center; }
+  .chart .b { width: 40%; border-radius: 3px 3px 0 0; min-height: 1px; }
+  .chart .b.i { background: var(--income); } .chart .b.e { background: var(--expense); }
+  .chart .m { font-size: 11px; color: var(--muted); }
+  @media (max-width: 600px) {
+    .summary { gap: 8px; }
+    .summary .card { padding: 10px 8px; text-align: center; }
+    .summary .value { font-size: 16px; }
+    form.entry { grid-template-columns: 1fr 1fr; }
+    form.entry .memo { grid-column: 1 / 3; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>家計簿</h1>
+    <div class="month-nav">
+      <button id="prev" aria-label="前の月">◀</button>
+      <span id="monthLabel"></span>
+      <button id="next" aria-label="次の月">▶</button>
+    </div>
+  </header>
+
+  <div class="summary">
+    <div class="card"><div class="label">収入</div><div class="value income" id="sumIncome">¥0</div></div>
+    <div class="card"><div class="label">支出</div><div class="value expense" id="sumExpense">¥0</div></div>
+    <div class="card"><div class="label">収支</div><div class="value" id="sumBalance">¥0</div></div>
+  </div>
+  <div style="height:16px"></div>
+
+  <div class="card">
+    <h2>記録する</h2>
+    <form class="entry" id="entryForm">
+      <div class="type-toggle">
+        <label><input type="radio" name="type" value="expense" checked><span>支出</span></label>
+        <label><input type="radio" name="type" value="income"><span>収入</span></label>
+      </div>
+      <input type="date" name="date" required>
+      <select name="category" id="categorySelect"></select>
+      <input type="number" name="amount" placeholder="金額" min="1" step="1" required inputmode="numeric">
+      <input type="text" name="memo" class="memo" placeholder="メモ（任意）">
+      <button class="primary" type="submit">追加</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>カテゴリ別の支出 <span class="budget-note">（予算は「予算設定」から）</span></h2>
+    <div id="catList"></div>
+  </div>
+
+  <div class="card">
+    <h2>過去6か月の推移</h2>
+    <div class="chart" id="chart"></div>
+  </div>
+
+  <div class="card">
+    <h2>今月の明細</h2>
+    <table>
+      <thead><tr><th>日付</th><th>カテゴリ</th><th class="hide-sm">メモ</th><th style="text-align:right">金額</th><th></th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+  </div>
+
+  <div class="tools">
+    <button id="budgetBtn">予算設定</button>
+    <button id="exportBtn">CSVで書き出し</button>
+    <button id="backupBtn">バックアップ（JSON）</button>
+    <button id="restoreBtn">バックアップから復元</button>
+    <input type="file" id="restoreFile" accept="application/json" hidden>
+  </div>
+</div>
+
+<script>
+const CATS = {
+  expense: ["食費", "日用品", "住居", "水道光熱", "通信", "交通", "医療", "娯楽", "衣服", "交際", "その他"],
+  income: ["給与", "賞与", "副収入", "その他"]
+};
+const KEY = "kakeibo-v1";
+const yen = n => "¥" + Math.round(n).toLocaleString("ja-JP");
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY)) || { entries: [], budgets: {} }; }
+  catch { return { entries: [], budgets: {} }; }
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { alert("保存に失敗しました: " + e.message); } }
+
+let db = load();
+db.budgets ||= {};
+const today = new Date();
+let ym = { y: today.getFullYear(), m: today.getMonth() + 1 };
+const ymKey = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
+const localDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+
+const form = document.getElementById("entryForm");
+const catSel = document.getElementById("categorySelect");
+form.date.value = localDate(today);
+
+function fillCats() {
+  const t = form.type.value;
+  catSel.innerHTML = CATS[t].map(c => `<option>${c}</option>`).join("");
+}
+form.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener("change", fillCats));
+fillCats();
+
+form.addEventListener("submit", e => {
+  e.preventDefault();
+  const amount = Number(form.amount.value);
+  if (!amount || amount <= 0) return;
+  db.entries.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    type: form.type.value, date: form.date.value,
+    category: catSel.value, amount, memo: form.memo.value.trim()
+  });
+  save();
+  const [y, m] = form.date.value.split("-").map(Number);
+  ym = { y, m };
+  form.amount.value = ""; form.memo.value = "";
+  form.amount.focus();
+  render();
+});
+
+function shift(d) {
+  let m = ym.m + d, y = ym.y;
+  if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+  ym = { y, m }; render();
+}
+document.getElementById("prev").onclick = () => shift(-1);
+document.getElementById("next").onclick = () => shift(1);
+
+function monthEntries(y, m) {
+  const k = ymKey(y, m);
+  return db.entries.filter(e => e.date.startsWith(k));
+}
+const esc = s => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function render() {
+  document.getElementById("monthLabel").textContent = `${ym.y}年${ym.m}月`;
+  const list = monthEntries(ym.y, ym.m).sort((a, b) => b.date.localeCompare(a.date));
+  const inc = list.filter(e => e.type === "income").reduce((s, e) => s + e.amount, 0);
+  const exp = list.filter(e => e.type === "expense").reduce((s, e) => s + e.amount, 0);
+  document.getElementById("sumIncome").textContent = yen(inc);
+  document.getElementById("sumExpense").textContent = yen(exp);
+  const bal = document.getElementById("sumBalance");
+  bal.textContent = (inc - exp < 0 ? "-" : "") + yen(Math.abs(inc - exp));
+  bal.className = "value " + (inc - exp < 0 ? "expense" : "income");
+
+  // カテゴリ別
+  const byCat = {};
+  list.filter(e => e.type === "expense").forEach(e => byCat[e.category] = (byCat[e.category] || 0) + e.amount);
+  const cats = CATS.expense.filter(c => byCat[c] || db.budgets[c]);
+  const max = Math.max(1, ...cats.map(c => Math.max(byCat[c] || 0, db.budgets[c] || 0)));
+  document.getElementById("catList").innerHTML = cats.length ? cats
+    .sort((a, b) => (byCat[b] || 0) - (byCat[a] || 0))
+    .map(c => {
+      const v = byCat[c] || 0, b = db.budgets[c];
+      const base = b || max;
+      const pct = Math.min(100, v / base * 100);
+      const note = b ? `<div class="budget-note">予算 ${yen(b)}・残り ${yen(b - v)}</div>` : "";
+      return `<div class="cat-row ${b && v > b ? "over" : ""}"><div>${c}</div>
+        <div><div class="cat-bar"><div style="width:${pct}%"></div></div>${note}</div>
+        <div class="amt">${yen(v)}</div></div>`;
+    }).join("") : `<div class="empty">まだ支出がありません</div>`;
+
+  // 推移
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    let m = ym.m - i, y = ym.y; while (m < 1) { m += 12; y--; }
+    const es = monthEntries(y, m);
+    months.push({ m, i: es.filter(e => e.type === "income").reduce((s, e) => s + e.amount, 0),
+                     e: es.filter(e => e.type === "expense").reduce((s, e) => s + e.amount, 0) });
+  }
+  const cmax = Math.max(1, ...months.flatMap(x => [x.i, x.e]));
+  document.getElementById("chart").innerHTML = months.map(x => `
+    <div class="col"><div class="bars">
+      <div class="b i" style="height:${x.i / cmax * 100}%" title="収入 ${yen(x.i)}"></div>
+      <div class="b e" style="height:${x.e / cmax * 100}%" title="支出 ${yen(x.e)}"></div>
+    </div><div class="m">${x.m}月</div></div>`).join("");
+
+  // 明細
+  document.getElementById("list").innerHTML = list.length ? list.map(e => `
+    <tr><td>${e.date.slice(5).replace("-", "/")}</td><td>${e.category}</td>
+    <td class="hide-sm">${esc(e.memo || "")}</td>
+    <td class="num ${e.type}">${e.type === "expense" ? "-" : "+"}${yen(e.amount)}</td>
+    <td class="del"><button data-id="${e.id}" aria-label="削除">×</button></td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">この月の記録はありません</td></tr>`;
+}
+
+document.getElementById("list").addEventListener("click", e => {
+  const id = e.target.dataset?.id;
+  if (!id || !confirm("この記録を削除しますか？")) return;
+  db.entries = db.entries.filter(x => x.id !== id);
+  save(); render();
+});
+
+document.getElementById("budgetBtn").onclick = () => {
+  for (const c of CATS.expense) {
+    const cur = db.budgets[c] || "";
+    const v = prompt(`「${c}」の月の予算（空欄で予算なし）`, cur);
+    if (v === null) break;
+    const n = Number(v.replace(/[,¥]/g, ""));
+    if (n > 0) db.budgets[c] = n; else delete db.budgets[c];
+  }
+  save(); render();
+};
+
+function download(name, text, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+document.getElementById("exportBtn").onclick = () => {
+  const rows = [["日付", "種類", "カテゴリ", "金額", "メモ"]];
+  [...db.entries].sort((a, b) => a.date.localeCompare(b.date)).forEach(e =>
+    rows.push([e.date, e.type === "income" ? "収入" : "支出", e.category, e.amount, e.memo || ""]));
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  download("kakeibo.csv", "﻿" + csv, "text/csv");
+};
+document.getElementById("backupBtn").onclick = () =>
+  download(`kakeibo-backup-${localDate(new Date())}.json`, JSON.stringify(db, null, 2), "application/json");
+document.getElementById("restoreBtn").onclick = () => document.getElementById("restoreFile").click();
+document.getElementById("restoreFile").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!Array.isArray(data.entries)) throw new Error("形式が違います");
+    if (!confirm(`${data.entries.length}件の記録で上書きします。よろしいですか？`)) return;
+    db = { entries: data.entries, budgets: data.budgets || {} };
+    save(); render();
+  } catch (err) { alert("読み込めませんでした: " + err.message); }
+  e.target.value = "";
+};
+
+render();
+
+// オフライン対応と、ブラウザに記録を消されにくくするお願い
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+navigator.storage?.persist?.().catch(() => {});
+</script>
+</body>
+</html>
