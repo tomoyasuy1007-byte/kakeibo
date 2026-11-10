@@ -79,6 +79,7 @@
   .type-toggle input { display: none; }
   .type-toggle label:has(input[value="expense"]:checked) { background: var(--expense); color: #000; font-weight: 700; }
   .type-toggle label:has(input[value="income"]:checked) { background: var(--income); color: #000; font-weight: 700; }
+  .version { text-align: center; font-size: 12px; color: var(--muted); margin: 16px 0 0; }
   .receipt { margin-bottom: 12px; }
   .receipt button { width: 100%; padding: 12px; font-weight: 600; }
   .receipt-status { margin-top: 8px; font-size: 14px; }
@@ -235,6 +236,7 @@
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
+  <p class="version">バージョン 8（レシート読み取り改良版）</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -817,7 +819,16 @@ document.getElementById("receiptFile").onchange = e => {
 
 // オフライン対応と、ブラウザに記録を消されにくくするお願い
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  // 新しい版を公開したら、開いている画面も自動で新しい版に切り替える
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (hadController && !reloading) { reloading = true; location.reload(); }
+  });
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    // ホーム画面のアプリは閉じずに裏で残るので、画面に戻ってきたときにも新しい版を確認する
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
 }
 navigator.storage?.persist?.().catch(() => {});
 </script>
