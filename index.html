@@ -656,14 +656,29 @@ const toHalf = s => s
   .replace(/[，､]/g, ",").replace(/[．]/g, ".").replace(/[￥\\]/g, "¥")
   .replace(/[／]/g, "/").replace(/[：]/g, ":").replace(/[－ー−](?=\d)/g, "-");
 
-const CATEGORY_HINTS = [
+// お店の名前からジャンルを推測する（レシートの上の方だけを見る）
+const STORE_HINTS = [
   [/病院|クリニック|医院|歯科|調剤|処方/, "医療"],
-  [/ドラッグ|薬局|マツモトキヨシ|マツキヨ|ウエルシア|ツルハ|スギ薬局|サンドラッグ|ココカラ|ダイソー|セリア|ホームセンター|カインズ|ニトリ/, "日用品"],
-  [/ユニクロ|UNIQLO|GU|しまむら|ZARA|H&M/i, "衣服"],
-  [/JR|駅|タクシー|ガソリン|ENEOS|出光|コスモ石油|パーキング|駐車/, "交通"],
-  [/居酒屋|酒場|ダイニング|バー/, "交際"],
-  [/映画|シネマ|カラオケ|書店|ブックオフ|ゲーム/, "娯楽"],
-  [/スーパー|マート|イオン|西友|ライフ|イトーヨーカドー|業務スーパー|まいばすけっと|ローソン|セブン|ファミリーマート|ミニストップ|成城石井|食品|青果|精肉|ベーカリー|パン|カフェ|コーヒー|スターバックス|ドトール|マクドナルド|すき家|松屋|吉野家|レストラン|食堂/, "食費"],
+  [/ドラッグ|薬局|マツモトキヨシ|マツキヨ|ウエルシア|ツルハ|スギ薬局|サンドラッグ|ココカラ|ダイソー|セリア|キャンドゥ|ホームセンター|カインズ|コーナン|ニトリ|無印良品|ロフト|ハンズ/, "日用品"],
+  [/ユニクロ|UNIQLO|GU|しまむら|ZARA|H&M|ABC-?MART|ワークマン/i, "衣服"],
+  [/JR|駅|鉄道|メトロ|バス|タクシー|ガソリン|ENEOS|出光|コスモ石油|パーキング|駐車/, "交通"],
+  [/居酒屋|酒場|ダイニング|バル/, "交際"],
+  [/映画|シネマ|カラオケ|書店|ブックオフ|TSUTAYA|ゲーム/, "娯楽"],
+  [/ドコモ|docomo|auショップ|ソフトバンク|SoftBank|楽天モバイル|ahamo|UQ/, "通信"],
+  [/スーパー|マート|イオン|西友|ライフ|イトーヨーカドー|まいばすけっと|ローソン|セブン|ファミリーマート|ミニストップ|成城石井|オーケー|サミット|マルエツ|ヤオコー|ベルク|コープ|生協|青果|精肉|ベーカリー|カフェ|スターバックス|ドトール|タリーズ|マクドナルド|モスバーガー|ケンタッキー|すき家|松屋|吉野家|なか卯|サイゼリヤ|ガスト|レストラン|食堂|弁当/, "食費"],
+];
+
+// 品目の名前からジャンルを決める。上にあるものほど優先（「乳液」を「乳」より先に見るなど）
+const ITEM_HINTS = [
+  [/薬|錠|カプセル|目薬|湿布|絆創膏|ばんそう|包帯|マスク|体温計|診療|診察|処方|ビタミン|サプリ/, "医療"],
+  [/ティッシュ|トイレット|ペーパー|洗剤|柔軟剤|漂白|シャンプー|リンス|コンディショナー|ボディソープ|ハンドソープ|石鹸|せっけん|歯ブラシ|歯磨|ハミガキ|歯みがき|ラップ|ホイル|ゴミ袋|ごみ袋|ポリ袋|スポンジ|電池|タオル|綿棒|化粧|乳液|日焼け止め|生理|ナプキン|おむつ|消臭|芳香|殺虫|ハンガー|収納|電球|文具|ノート|ボールペン|ケトル|食器|フライパン/, "日用品"],
+  [/シャツ|パンツ|ズボン|ジーンズ|デニム|スカート|ワンピース|ジャケット|コート|靴下|ソックス|下着|肌着|インナー|ブラ|セーター|ニット|パーカー|スウェット|カーディガン|スニーカー|ブーツ|サンダル|帽子|キャップ|手袋|マフラー|ベルト/, "衣服"],
+  [/乗車|運賃|切符|きっぷ|定期券|回数券|タクシー|ガソリン|レギュラー|ハイオク|軽油|給油|駐車|高速|ETC/, "交通"],
+  [/灯油|電気料金|ガス料金|水道料金/, "水道光熱"],
+  [/SIM|携帯|スマホ|充電器|ケーブル|イヤホン/, "通信"],
+  [/書籍|雑誌|コミック|漫画|文庫|映画|チケット|入場|観覧|ゲーム|DVD|CD|カラオケ|おもちゃ|玩具/, "娯楽"],
+  [/飲み放題|宴会|コース|ギフト|贈答|プレゼント|祝/, "交際"],
+  [/米|パン|牛乳|乳|卵|たまご|肉|豚|牛|鶏|鳥|ハム|ソーセージ|ベーコン|魚|鮭|さけ|まぐろ|刺身|えび|野菜|キャベツ|レタス|トマト|玉ねぎ|ねぎ|人参|にんじん|じゃが|大根|きゅうり|なす|もやし|きのこ|しめじ|バナナ|りんご|みかん|いちご|ぶどう|果物|豆腐|納豆|ヨーグルト|チーズ|バター|弁当|おにぎり|サンド|パスタ|麺|うどん|そば|ラーメン|カップ|冷凍|惣菜|唐揚|から揚|コロッケ|寿司|すし|定食|丼|カレー|ピザ|バーガー|ポテト|菓子|チョコ|クッキー|ケーキ|スコーン|アイス|プリン|ガム|飴|あめ|ジュース|茶|コーヒー|ラテ|紅茶|水|炭酸|飲料|ビール|酒|ワイン|醤油|しょうゆ|味噌|みそ|砂糖|塩|油|酢|ソース|ドレッシング|マヨ|ケチャップ|調味|食品|ランチ|ドリンク/, "食費"],
 ];
 
 // 文字認識でよくある読み間違いを直す
@@ -679,22 +694,41 @@ function parseReceipt(raw) {
   const yenIn = l => { const m = l.match(/¥(\d{1,3}(?:,\d{3})+|\d+)/); return m ? Number(m[1].replace(/,/g, "")) : null; };
   const amountOf = l => yenIn(l) ?? (/点/.test(l) ? null : (nums(l).length ? Math.max(...nums(l)) : null));
 
-  // 金額：「合計」などの行（小計・お預り・お釣りは除く）。行に数字がなければ次の行を見る
-  let amount = null;
-  for (let i = 0; i < lines.length && !amount; i++) {
-    const l = lines[i];
-    if (/合計|総計|買上|ご請求|お支払|支払金額|税込計/.test(l) && !/小計|預|釣/.test(l)) {
-      amount = amountOf(l) || (lines[i + 1] && !/預|釣/.test(lines[i + 1]) ? amountOf(lines[i + 1]) : null);
+  // 金額：「合計」「税込」などの行を候補にする。
+  // 税抜・小計・消費税・対象額・お預り・お釣り・値引・ポイントの行は除く。
+  // 税抜の合計と税込の合計が両方あるときは、大きい方（税込）を選ぶ。
+  const NOT_TOTAL = /税抜|税別|本体|小計|消費税|内税|外税|対象|預|釣|値引|割引|クーポン|ポイント|pt|点/i;
+  const totals = [];
+  lines.forEach((l, i) => {
+    if (!/合計|総計|買上|ご請求|お支払|支払金額|税込/.test(l)) return;
+    if (/税込/.test(l) ? /対象|預|釣/.test(l) : NOT_TOTAL.test(l)) return;
+    const v = amountOf(l) ?? (lines[i + 1] && !NOT_TOTAL.test(lines[i + 1]) ? amountOf(lines[i + 1]) : null);
+    if (v) totals.push(v);
+  });
+  // 現金のときは「お預り − お釣り」がちょうど支払った額になる
+  const find = re => { const l = lines.find(x => re.test(x)); return l ? amountOf(l) : null; };
+  const paid = find(/預/), change = find(/釣/);
+  let cash = paid && change != null && paid > change ? paid - change : null;
+  if (!cash) {
+    // 「お預り」「お釣り」の文字が読めなくても、並んだ2つの金額の差が
+    // レシートに書かれた合計以上の金額と一致すれば、それが支払った額
+    const vals = lines.map(yenIn).filter(v => v != null);
+    const top = totals.length ? Math.max(...totals) : 0;
+    for (let i = 0; i + 1 < vals.length && !cash; i++) {
+      const d = vals[i] - vals[i + 1];
+      if (d > 0 && d >= top && (!top || d <= top * 1.15) && vals.slice(0, i).includes(d)) cash = d;
     }
   }
+  // カード払いのときは「クレジット」などの行の金額も支払った額
+  const card = lines.filter(l => /クレジット|カード|電子マネー|PayPay|QUICPay|iD|Suica|PASMO|交通系|nanaco|WAON|楽天Pay|d払い|au PAY/i.test(l) && !/番号|\*{3}/.test(l)).map(yenIn).filter(Boolean);
+  let amount = null;
+  const topTotal = totals.length ? Math.max(...totals) : 0;
+  if (cash && (totals.includes(cash) || (cash > topTotal && cash <= topTotal * 1.15))) amount = cash;
+  else if (totals.length) amount = Math.max(...totals);
+  else if (cash) amount = cash;
+  else if (card.length) amount = Math.max(...card);
   if (!amount) {
-    // 「合計」が読めなかったときは「お預り − お釣り」で求める
-    const find = re => { const l = lines.find(x => re.test(x)); return l ? amountOf(l) : null; };
-    const paid = find(/預/), change = find(/釣/);
-    if (paid && change != null && paid > change) amount = paid - change;
-  }
-  if (!amount) {
-    const vals = lines.filter(l => !/預|釣|小計/.test(l)).map(yenIn).filter(Boolean);
+    const vals = lines.filter(l => !/預|釣|小計|税抜|対象/.test(l)).map(yenIn).filter(Boolean);
     if (vals.length) amount = Math.max(...vals);
   }
 
@@ -710,7 +744,27 @@ function parseReceipt(raw) {
   const store = lines.slice(0, 6).find(l =>
     /[ぁ-んァ-ヶ一-龠A-Za-z]{2,}/.test(l) && !/領収|レシート|TEL|電話|〒|登録番号|ようこそ|ありがとう|^\d/.test(l)) || "";
 
-  const category = (CATEGORY_HINTS.find(([re]) => re.test(text)) || [, "食費"])[1];
+  // ジャンル：品目ごとにジャンルを決めて金額を足し、いちばん多いジャンルを選ぶ。
+  // お店の名前から分かるジャンルにも少し点を足す。どれにも当てはまらなければ「その他」。
+  const score = {};
+  const add = (cat, v) => { score[cat] = (score[cat] || 0) + v; };
+  const SKIP = /合計|総計|小計|税|対象|預|釣|値引|割引|ポイント|クレジット|カード|領収|TEL|電話|登録番号|No\.|#/i;
+  let itemSum = 0;
+  for (const l of lines.slice(1)) {
+    if (SKIP.test(l)) continue;
+    const v = yenIn(l) ?? (/\d+$/.test(l) ? Number(l.match(/(\d{1,3}(?:,\d{3})+|\d+)$/)[1].replace(/,/g, "")) : null);
+    if (!v || v > 1000000) continue;
+    const name = l.replace(/[¥\d,.%()※*＊\-]+/g, "");
+    const hit = ITEM_HINTS.find(([re]) => re.test(name));
+    if (hit) add(hit[1], v);
+    itemSum += v;
+  }
+  const head = lines.slice(0, 6).join("");
+  const storeHit = STORE_HINTS.find(([re]) => re.test(head));
+  if (storeHit) add(storeHit[1], Math.max(1, itemSum * 0.3));
+  const best = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
+  const category = best ? best[0] : "その他";
+
   return { amount, date, store: store.slice(0, 30), category };
 }
 
@@ -720,9 +774,8 @@ function applyReceipt(r) {
   catSel.value = r.category;
   if (r.date) form.date.value = r.date;
   if (r.amount) form.amount.value = r.amount;
-  if (r.store) form.memo.value = r.store;
-  [catSel, form.date, form.amount, form.memo].forEach(el => el.classList.add("filled"));
-  setTimeout(() => [catSel, form.date, form.amount, form.memo].forEach(el => el.classList.remove("filled")), 4000);
+  [catSel, form.date, form.amount].forEach(el => el.classList.add("filled"));
+  setTimeout(() => [catSel, form.date, form.amount].forEach(el => el.classList.remove("filled")), 4000);
   const missing = [!r.amount && "金額", !r.date && "日付"].filter(Boolean);
   setStatus(missing.length
     ? `${missing.join("と")}を読み取れませんでした。入力してから「追加」を押してください。`
