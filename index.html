@@ -236,7 +236,7 @@
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
-  <p class="version">バージョン 8（レシート読み取り改良版）</p>
+  <p class="version">バージョン 9</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -635,19 +635,103 @@ async function getWorker() {
   return ocrWorker;
 }
 
-// 読み取りやすいように縮小・白黒・コントラスト強調する
+// 読み取りやすくする：レシートの部分だけ切り出し → 文字が読みやすい大きさにする → 白黒にする
+// 画像の下ごしらえの設定（紙の色のなさ・暗さの許容、白黒のしかた）
+const PREP = { sat: 28, dark: 1, mode: "gray", k: 0.85, c: 25, width: 1200 };
+const grayOf = d => { const g = new Uint8ClampedArray(d.length / 4); for (let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; return g; };
+
+// 明るい部分と暗い部分を分けるしきい値（大津の方法）
+function otsu(g) {
+  const h = new Array(256).fill(0); g.forEach(v => h[v]++);
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * h[i];
+  let sB = 0, wB = 0, best = 0, th = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += h[t]; if (!wB) continue;
+    const wF = g.length - wB; if (!wF) break;
+    sB += t * h[t];
+    const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) ** 2;
+    if (v > best) { best = v; th = t; }
+  }
+  return th;
+}
+
+// 白い紙（レシート）が写っている範囲を探す。見つからなければ写真全体を使う
+function findPaper(bmp) {
+  const W = 300, sc = W / bmp.width, H = Math.round(bmp.height * sc);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d"); x.drawImage(bmp, 0, 0, W, H);
+  const px = x.getImageData(0, 0, W, H).data, gray = grayOf(px), th = otsu(gray);
+  // 紙は「明るくて色がない」。木の机など、明るくても色のついたところは紙に数えない
+  const g = new Uint8Array(W * H);
+  for (let j = 0, i = 0; j < g.length; j++, i += 4) {
+    const mx = Math.max(px[i], px[i + 1], px[i + 2]), mn = Math.min(px[i], px[i + 1], px[i + 2]);
+    g[j] = gray[j] > th * PREP.dark && mx - mn < PREP.sat ? 1 : 0;  // 影で少し暗い紙も含める
+  }
+  // 文字の部分も紙として扱う（まわり数ピクセル以内に紙があれば紙）。これで値段の列が切れない
+  const close = (src, r, want) => {
+    const out = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let hit = !want;
+      for (let dy = -r; dy <= r && hit !== want; dy++) for (let dx = -r; dx <= r; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if (yy < 0 || yy >= H || xx < 0 || xx >= W) continue;
+        if (!!src[yy * W + xx] === want) { hit = want; break; }
+      }
+      out[y * W + x] = hit ? 1 : 0;
+    }
+    return out;
+  };
+  const paper = close(close(g, 3, true), 3, false);
+  g.set(paper);
+  // 紙の割合が多い列（行）が一番長く続く範囲。少しの切れ目は続いているとみなす
+  const run = (n, frac) => {
+    const gap = Math.round(n * 0.04);
+    let best = null, s = -1, last = -1;
+    for (let i = 0; i <= n; i++) {
+      const on = i < n && frac(i) > 0.5;
+      if (on) { if (s < 0) s = i; last = i; }
+      else if (s >= 0 && (i === n || i - last > gap)) {
+        if (!best || last - s > best[1] - best[0]) best = [s, last];
+        s = -1;
+      }
+    }
+    return best || [0, n - 1];
+  };
+  const colFrac = i => { let k = 0; for (let y = 0; y < H; y++) k += g[y * W + i]; return k / H; };
+  const [x0, x1] = run(W, colFrac);
+  const rowFrac = y => { let k = 0; for (let i = x0; i <= x1; i++) k += g[y * W + i]; return k / (x1 - x0 + 1); };
+  const [y0, y1] = run(H, rowFrac);
+  const pw = x1 - x0 + 1, ph = y1 - y0 + 1;
+  if (pw < W * 0.2 || ph < H * 0.2) return { x: 0, y: 0, w: bmp.width, h: bmp.height };
+  const m = 0.05 * W;
+  const X0 = Math.max(0, x0 - m), Y0 = Math.max(0, y0 - m), X1 = Math.min(W, x1 + 1 + m), Y1 = Math.min(H, y1 + 1 + m);
+  return { x: X0 / sc, y: Y0 / sc, w: (X1 - X0) / sc, h: (Y1 - Y0) / sc };
+}
+
 async function prepareImage(file) {
   const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+  const r = findPaper(bmp);
+  // レシートの幅を約1200ピクセルに（1行30文字前後で、1文字が読みやすい大きさになる）
+  const scale = Math.min(PREP.width / r.w, 4500 / r.h, 2);
   const c = document.createElement("canvas");
-  c.width = Math.round(bmp.width * scale);
-  c.height = Math.round(bmp.height * scale);
+  c.width = Math.round(r.w * scale); c.height = Math.round(r.h * scale);
   const ctx = c.getContext("2d");
-  ctx.drawImage(bmp, 0, 0, c.width, c.height);
-  const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    d[i] = d[i + 1] = d[i + 2] = Math.max(0, Math.min(255, (g - 128) * 1.6 + 128));
+  ctx.drawImage(bmp, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  const W = c.width, H = c.height, img = ctx.getImageData(0, 0, W, H), d = img.data;
+  const g = grayOf(d);
+  if (PREP.mode === "gray") { for (let j = 0; j < g.length; j++) d[j * 4] = d[j * 4 + 1] = d[j * 4 + 2] = g[j]; ctx.putImageData(img, 0, 0); return c; }
+  // まわりの明るさと比べて白黒を決める（影や照明のむらがあっても文字だけが黒く残る）
+  const I = new Float64Array((W + 1) * (H + 1));
+  for (let y = 0; y < H; y++) { let row = 0; for (let x = 0; x < W; x++) { row += g[y * W + x]; I[(y + 1) * (W + 1) + x + 1] = I[y * (W + 1) + x + 1] + row; } }
+  const R = Math.max(16, Math.round(W / 14));  // 太い大きな文字（合計など）も中が白抜けしない広さ
+  for (let y = 0; y < H; y++) {
+    const ya = Math.max(0, y - R), yb = Math.min(H, y + R + 1);
+    for (let x = 0; x < W; x++) {
+      const xa = Math.max(0, x - R), xb = Math.min(W, x + R + 1);
+      const mean = (I[yb * (W + 1) + xb] - I[ya * (W + 1) + xb] - I[yb * (W + 1) + xa] + I[ya * (W + 1) + xa]) / ((yb - ya) * (xb - xa));
+      const p = g[y * W + x], v = p < mean * PREP.k && mean - p > PREP.c ? 0 : 255, k = (y * W + x) * 4;  // はっきり暗い所だけ黒（机の木目やざらつきは白）
+      d[k] = d[k + 1] = d[k + 2] = v;
+    }
   }
   ctx.putImageData(img, 0, 0);
   return c;
@@ -667,7 +751,7 @@ const STORE_HINTS = [
   [/居酒屋|酒場|ダイニング|バル/, "交際"],
   [/映画|シネマ|カラオケ|書店|ブックオフ|TSUTAYA|ゲーム/, "娯楽"],
   [/ドコモ|docomo|auショップ|ソフトバンク|SoftBank|楽天モバイル|ahamo|UQ/, "通信"],
-  [/スーパー|マート|イオン|西友|ライフ|イトーヨーカドー|まいばすけっと|ローソン|セブン|ファミリーマート|ミニストップ|成城石井|オーケー|サミット|マルエツ|ヤオコー|ベルク|コープ|生協|青果|精肉|ベーカリー|カフェ|スターバックス|ドトール|タリーズ|マクドナルド|モスバーガー|ケンタッキー|すき家|松屋|吉野家|なか卯|サイゼリヤ|ガスト|レストラン|食堂|弁当/, "食費"],
+  [/スーパー|マート|イオン|西友|SEIYU|ライフ|イトーヨーカドー|まいばすけっと|ローソン|セブン|ファミリーマート|ミニストップ|成城石井|オーケー|サミット|マルエツ|ヤオコー|ベルク|コープ|生協|青果|精肉|ベーカリー|カフェ|スターバックス|ドトール|タリーズ|マクドナルド|モスバーガー|ケンタッキー|すき家|松屋|吉野家|なか卯|サイゼリヤ|ガスト|レストラン|食堂|弁当/, "食費"],
 ];
 
 // 品目の名前からジャンルを決める。上にあるものほど優先（「乳液」を「乳」より先に見るなど）
@@ -680,13 +764,14 @@ const ITEM_HINTS = [
   [/SIM|携帯|スマホ|充電器|ケーブル|イヤホン/, "通信"],
   [/書籍|雑誌|コミック|漫画|文庫|映画|チケット|入場|観覧|ゲーム|DVD|CD|カラオケ|おもちゃ|玩具/, "娯楽"],
   [/飲み放題|宴会|コース|ギフト|贈答|プレゼント|祝/, "交際"],
-  [/米|パン|牛乳|乳|卵|たまご|肉|豚|牛|鶏|鳥|ハム|ソーセージ|ベーコン|魚|鮭|さけ|まぐろ|刺身|えび|野菜|キャベツ|レタス|トマト|玉ねぎ|ねぎ|人参|にんじん|じゃが|大根|きゅうり|なす|もやし|きのこ|しめじ|バナナ|りんご|みかん|いちご|ぶどう|果物|豆腐|納豆|ヨーグルト|チーズ|バター|弁当|おにぎり|サンド|パスタ|麺|うどん|そば|ラーメン|カップ|冷凍|惣菜|唐揚|から揚|コロッケ|寿司|すし|定食|丼|カレー|ピザ|バーガー|ポテト|菓子|チョコ|クッキー|ケーキ|スコーン|アイス|プリン|ガム|飴|あめ|ジュース|茶|コーヒー|ラテ|紅茶|水|炭酸|飲料|ビール|酒|ワイン|醤油|しょうゆ|味噌|みそ|砂糖|塩|油|酢|ソース|ドレッシング|マヨ|ケチャップ|調味|食品|ランチ|ドリンク/, "食費"],
+  [/米|パン|牛乳|乳|卵|たまご|肉|豚|牛|鶏|鳥|ハム|ソーセージ|ベーコン|魚|鮭|さけ|まぐろ|刺身|えび|野菜|キャベツ|レタス|トマト|玉ねぎ|ねぎ|人参|にんじん|じゃが|大根|きゅうり|なす|もやし|きのこ|しめじ|バナナ|りんご|みかん|いちご|ぶどう|果物|豆腐|納豆|ヨーグルト|チーズ|バター|弁当|おにぎり|サンド|パスタ|麺|うどん|そば|ラーメン|カップ|冷凍|惣菜|唐揚|から揚|コロッケ|寿司|すし|定食|丼|カレー|ピザ|バーガー|ポテト|菓子|チョコ|クッキー|ケーキ|スコーン|アイス|プリン|ガム|飴|あめ|ジュース|茶|コーヒー|ラテ|紅茶|水|炭酸|飲料|ビール|酒|ワイン|醤油|しょうゆ|味噌|みそ|砂糖|塩|油|酢|ソース|ドレッシング|マヨ|ケチャップ|調味|食品|ランチ|ドリンク|ギュウニュウ|ニュウ|タマゴ|ニク|ブタ|ギュウ|トリ|イワシ|サバ|サケ|マグロ|サンマ|ヤサイ|キャベツ|ニンジン|タマネギ|ネギ|トウフ|ナットウ|スパゲティ|カレー|ヤクミ|コメ|ゴハン|ベントウ|オニギリ|パン|ギュウドン|ジュース|コーヒー|オチャ|チャ|ミズ|ビール|アイス|カシ|チョコ/, "食費"],
 ];
 
 // 文字認識でよくある読み間違いを直す
 // 「1,436」の「,」が「.」「.,」に、「¥」が「Y」に、「0」が「O」になりやすい
 const fixNums = l => l
   .replace(/[YV半羊](?=[\dOoIil|])/g, "¥")
+  .replace(/(^|[^*])\*(?=\d)/g, "$1¥")   // 「*2,839」も¥とみなす（「****7146」のカード番号は除く）
   .replace(/¥[\dOoIil|.,]+/g, t => "¥" + t.slice(1).replace(/[Oo]/g, "0").replace(/[Iil|]/g, "1"))
   .replace(/(\d)[.,]{1,2}(?=\d{3}(?!\d))/g, "$1,");
 
@@ -722,11 +807,32 @@ function parseReceipt(raw) {
     }
   }
   // カード払いのときは「クレジット」などの行の金額も支払った額
-  const card = lines.filter(l => /クレジット|カード|電子マネー|PayPay|QUICPay|iD|Suica|PASMO|交通系|nanaco|WAON|楽天Pay|d払い|au PAY/i.test(l) && !/番号|\*{3}/.test(l)).map(yenIn).filter(Boolean);
-  let amount = null;
+  const card = lines.filter(l => /クレジット|カード|電子マネー|PayPay|QUICPay|iD|Suica|PASMO|交通系|nanaco|WAON|楽天Pay|楽天ペイ|ペイ|d払い|au PAY/i.test(l) && !/番号|\*{3}/.test(l)).map(yenIn).filter(Boolean);
   const topTotal = totals.length ? Math.max(...totals) : 0;
+  // 外税のレシート：「小計（税抜）＋消費税」が合計になる
+  const valNear = re => {
+    const i = lines.findIndex(l => re.test(l) && !/内/.test(l));
+    if (i < 0) return null;
+    return yenIn(lines[i]) ?? (lines[i + 1] ? yenIn(lines[i + 1]) : null);
+  };
+  // 合計は横に大きな文字で印刷されることが多く、数字を読み間違えやすい。
+  // 小さな文字の「小計」と「消費税」は読みやすいので、足し算で合計を確かめる。
+  // 「消費税」の文字が読めなくても、小計の8〜10%にあたる金額があれば消費税とみなす。
+  const sub = valNear(/小計|税抜/);
+  const innerTax = lines.some(l => /内税|内消費税|内.?税/.test(l));
+  let tax = valNear(/消費税|税額|外税/);
+  if (sub && !(tax && tax < sub * 0.11) && !innerTax) {
+    const isTax = v => v >= Math.floor(sub * 0.08) - 1 && v <= Math.ceil(sub * 0.1) + 1;
+    const from = lines.findIndex(l => /小計|税抜/.test(l));
+    tax = lines.slice(from + 1).map(yenIn).find(v => v && isTax(v)) ?? null;  // 小計より下だけを見る
+  }
+  const derived = sub && tax && tax < sub * 0.11 && !innerTax ? sub + tax : null;
+  const seen = [...totals, ...card];
+  let amount = null;
   if (cash && (totals.includes(cash) || (cash > topTotal && cash <= topTotal * 1.15))) amount = cash;
-  else if (totals.length) amount = Math.max(...totals);
+  else if (derived && seen.includes(derived)) amount = derived;
+  else if (derived && !totals.includes(sub)) amount = derived;
+  else if (totals.length) amount = topTotal;
   else if (cash) amount = cash;
   else if (card.length) amount = Math.max(...card);
   if (!amount) {
@@ -765,9 +871,11 @@ function parseReceipt(raw) {
   const storeHit = STORE_HINTS.find(([re]) => re.test(head));
   if (storeHit) add(storeHit[1], Math.max(1, itemSum * 0.3));
   const best = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
-  const category = best ? best[0] : "その他";
+  // 何も手がかりがないときは、レシートで一番多い「食費」にしておく（画面で確認してもらう）
+  const category = best ? best[0] : "食費";
+  const categoryGuessed = !best;
 
-  return { amount, date, store: store.slice(0, 30), category };
+  return { amount, date, store: store.slice(0, 30), category, categoryGuessed };
 }
 
 function applyReceipt(r) {
@@ -781,6 +889,7 @@ function applyReceipt(r) {
   const missing = [!r.amount && "金額", !r.date && "日付"].filter(Boolean);
   setStatus(missing.length
     ? `${missing.join("と")}を読み取れませんでした。入力してから「追加」を押してください。`
+    : r.categoryGuessed ? "読み取りました。ジャンルは分からなかったので「食費」にしています。確認して「追加」を押してください。"
     : "読み取りました。内容を確認して「追加」を押してください。", missing.length > 0);
   form.amount.focus();
 }
