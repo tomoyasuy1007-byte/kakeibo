@@ -1,6 +1,6 @@
 // オフラインでも開けるようにアプリのファイルを保存しておく。
 // ファイルを更新したら VERSION を上げる。
-const VERSION = "kakeibo-v5";
+const VERSION = "kakeibo-v6";
 const FILES = ["./", "./index.html", "./sync.js", "./firebase-config.js", "./manifest.json",
   "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png"];
 // アプリ本体と、読み込むプログラム（文字認識・Firebase）だけを保存する。
