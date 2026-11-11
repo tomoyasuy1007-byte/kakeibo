@@ -268,7 +268,7 @@
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
-  <p class="version">バージョン 12</p>
+  <p class="version">バージョン 13</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -457,7 +457,8 @@ function render() {
       judge = diff >= 0 ? `ペース内です（${yen(diff)} 余裕）` : `${yen(-diff)} 使い過ぎです`;
       cls = diff >= 0 ? "ok" : "over";
       rows.push([`今日(${dayN}日)までの予算`, yen(planSoFar)], ["今日までに使った額", yen(spentSoFar)]);
-      rows.push(["今日使えるお金", todayAllow > 0 ? `${yen(Math.max(0, todayAllow - todaySpent))}（今日 ${yen(todaySpent)} 使用）` : "¥0（予算を使い切りました）"]);
+      const todayLeft = todayAllow - todaySpent;   // マイナスならオーバー
+      rows.push(["今日使えるお金", `<span class="${todayLeft < 0 ? "expense" : ""}">${yen(todayLeft)}</span>（今日 ${yen(todaySpent)} 使用）`]);
       if (todayAllow > 0 && days > dayN) {
         const tomorrow = Math.floor((monthBudget - spentSoFar) / (days - dayN));
         rows.push(["明日からの1日の目安", yen(Math.max(0, tomorrow))]);
