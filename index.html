@@ -57,6 +57,15 @@
   .sync-bar #loginBtn { background: var(--text); color: #000; font-weight: 700; border-color: var(--text); }
   .sync-bar.moved { background: var(--card2); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; color: var(--text); }
 
+  /* タップで開く欄（普段は閉じておく） */
+  .fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; -webkit-tap-highlight-color: transparent; }
+  .fold > summary::-webkit-details-marker { display: none; }
+  .fold > summary h2 { flex: 1; margin: 0; min-width: 0; }
+  .fold > summary::after { content: ""; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); margin: -4px 4px 0 0; transition: transform .2s; flex: none; }
+  .fold[open] > summary::after { transform: rotate(-135deg); margin-top: 4px; }
+  .fold[open] > summary { margin-bottom: 12px; }
+  .fold-note { margin: 0 0 4px; }
+
   /* 今月のまとめ */
   .hero-label { color: var(--muted); font-size: 13px; }
   .hero-value { font-size: 34px; font-weight: 800; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
@@ -220,30 +229,32 @@
   </div>
 
   <!-- 日々の変動費 -->
-  <div class="card">
-    <h2><span>日々の変動費</span><span class="num" id="dailyAvg"></span></h2>
+  <details class="card fold">
+    <summary><h2><span>日々の変動費</span><span class="num" id="dailyAvg"></span></h2></summary>
     <div class="daily" id="daily"></div>
     <div class="daily-labels" id="dailyLabels"></div>
     <div id="list"></div>
-  </div>
+  </details>
 
   <!-- 固定費・固定収入 -->
-  <div class="card">
-    <h2><span>固定収入・固定費</span><span class="small">タップで編集</span></h2>
+  <details class="card fold">
+    <summary><h2><span>固定収入・固定費</span><span class="num small" id="fixedSum"></span></h2></summary>
+    <p class="small muted fold-note">項目をタップすると編集できます</p>
     <div id="fixedList"></div>
     <button class="add-btn" id="addFixedBtn">＋ 固定収入・固定費を登録</button>
-  </div>
+  </details>
 
-  <div class="card">
-    <h2>変動費のカテゴリ別 <span class="budget-note">予算は下の「予算設定」から</span></h2>
+  <details class="card fold">
+    <summary><h2><span>変動費のカテゴリ別</span></h2></summary>
+    <p class="budget-note fold-note">予算は下の「予算設定」から</p>
     <div id="catList"></div>
-  </div>
+  </details>
 
-  <div class="card">
-    <h2>過去6か月の推移</h2>
+  <details class="card fold">
+    <summary><h2><span>過去6か月の推移</span></h2></summary>
     <div class="chart" id="chart"></div>
     <div class="legend"><span><i style="background:var(--income)"></i>収入</span><span><i style="background:var(--fixed)"></i>固定費</span><span><i style="background:var(--expense)"></i>変動費</span></div>
-  </div>
+  </details>
 
   <div class="tools">
     <button id="budgetBtn">予算設定</button>
@@ -252,7 +263,7 @@
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
-  <p class="version">バージョン 10</p>
+  <p class="version">バージョン 11</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -479,6 +490,7 @@ function render() {
   const fixedRow = x => `<div class="row tap" data-fixed="${x.item.id}">
       <div class="main"><div>${esc(x.item.name)}${x.overridden ? '<span class="tag">今月のみ</span>' : ""}</div><div class="small muted">${esc(x.item.category)}</div></div>
       <div class="num ${x.item.type === "income" ? "income" : "fixedc"}">${x.item.type === "income" ? "+" : "-"}${yen(x.amount)}</div></div>`;
+  document.getElementById("fixedSum").textContent = t.fx.length ? `収入 ${yen(t.fixedIncome)}・支出 ${yen(t.fixedExp)}` : "";
   document.getElementById("fixedList").innerHTML = t.fx.length ?
     (fi.length ? `<div class="sub-title"><span>固定収入</span><span class="num income">${yen(t.fixedIncome)}</span></div>` + fi.map(fixedRow).join("") : "") +
     (fe.length ? `<div class="sub-title"><span>固定費</span><span class="num fixedc">${yen(t.fixedExp)}</span></div>` + fe.map(fixedRow).join("") : "")
