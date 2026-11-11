@@ -68,6 +68,18 @@
   .stats div { background: var(--card2); border-radius: 12px; padding: 10px; text-align: center; }
   .stats span { display: block; font-size: 12px; color: var(--muted); }
   .stats b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  /* 日々の予算のペース */
+  .pace { margin-top: 14px; background: var(--card2); border-radius: 12px; padding: 12px; }
+  .pace-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .pace-head span { font-size: 13px; color: var(--muted); }
+  .pace-judge { font-size: 18px; font-weight: 800; margin: 6px 0 2px; }
+  .pace-judge.ok { color: var(--income); } .pace-judge.over { color: var(--expense); }
+  .pace-rows { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .pace-rows b { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+  .pace-track { position: relative; height: 8px; background: var(--bg); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .pace-track .used { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }
+  .pace-track.over .used { background: var(--expense); }
+  .pace-track .mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); }
 
   /* 入力 */
   form.entry { display: grid; grid-template-columns: auto 1fr 1fr 1fr; gap: 8px; }
@@ -114,6 +126,9 @@
   .daily .d { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; }
   .daily .d i { display: block; background: var(--expense); border-radius: 2px 2px 0 0; min-height: 1px; opacity: .85; }
   .daily .d.today i { background: var(--accent); opacity: 1; }
+  .daily .d.over i { background: var(--expense); opacity: 1; }
+  .daily { position: relative; }
+  .daily .limit { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--muted); pointer-events: none; }
   .daily-labels { display: flex; gap: 2px; font-size: 10px; color: var(--muted); margin-top: 4px; }
   .daily-labels span { flex: 1; text-align: center; }
   .chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; padding-top: 8px; }
@@ -179,6 +194,7 @@
       <div><span>固定費</span><b id="sFixed" class="fixedc">¥0</b></div>
       <div><span>変動費</span><b id="sVar" class="expense">¥0</b></div>
     </div>
+    <div class="pace" id="pace" hidden></div>
   </div>
 
   <!-- 変動費の記録 -->
@@ -236,7 +252,7 @@
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
-  <p class="version">バージョン 9</p>
+  <p class="version">バージョン 10</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -388,14 +404,56 @@ function render() {
   }
   document.getElementById("heroSub").textContent = sub;
 
-  // 日々の変動費（グラフ）
+  // 日々の予算：変動費の予算を日数で割り、今日までのペースと比べる
   const days = new Date(ym.y, ym.m, 0).getDate();
+  const isNow = ym.y === today.getFullYear() && ym.m === today.getMonth() + 1;
+  const isPast = new Date(ym.y, ym.m, 1) <= today && !isNow;
+  const budgetSum = sum(Object.values(db.budgets), x => Number(x) || 0);
+  const monthBudget = budgetSum > 0 ? budgetSum : canSpend;   // カテゴリ予算があればその合計、なければ使えるお金
+  const dailyBudget = monthBudget > 0 ? monthBudget / days : 0;
   const perDay = Array.from({ length: days }, (_, i) =>
     sum(t.es.filter(e => e.type === "expense" && Number(e.date.slice(8, 10)) === i + 1)));
-  const dmax = Math.max(1, ...perDay);
-  const todayD = ym.y === today.getFullYear() && ym.m === today.getMonth() + 1 ? today.getDate() : 0;
+  const paceEl = document.getElementById("pace");
+  paceEl.hidden = !dailyBudget;
+  if (dailyBudget) {
+    const src = budgetSum > 0 ? "カテゴリ予算の合計" : "使えるお金";
+    const dayN = isNow ? today.getDate() : isPast ? days : 0;
+    const spentSoFar = sum(perDay.slice(0, dayN), x => x);
+    const planSoFar = Math.round(dailyBudget * dayN);
+    const diff = planSoFar - spentSoFar;   // プラスなら余裕、マイナスなら使い過ぎ
+    let judge = "", cls = "", rows = [["1日の予算", yen(Math.floor(dailyBudget))]];
+    if (isNow) {
+      const spentBefore = spentSoFar - perDay[dayN - 1];
+      const todayAllow = Math.floor((monthBudget - spentBefore) / (days - dayN + 1));
+      const todaySpent = perDay[dayN - 1];
+      judge = diff >= 0 ? `ペース内です（${yen(diff)} 余裕）` : `${yen(-diff)} 使い過ぎです`;
+      cls = diff >= 0 ? "ok" : "over";
+      rows.push([`今日(${dayN}日)までの予算`, yen(planSoFar)], ["今日までに使った額", yen(spentSoFar)]);
+      rows.push(["今日使えるお金", todayAllow > 0 ? `${yen(Math.max(0, todayAllow - todaySpent))}（今日 ${yen(todaySpent)} 使用）` : "¥0（予算を使い切りました）"]);
+      if (todayAllow > 0 && days > dayN) {
+        const tomorrow = Math.floor((monthBudget - spentSoFar) / (days - dayN));
+        rows.push(["明日からの1日の目安", yen(Math.max(0, tomorrow))]);
+      }
+    } else if (isPast) {
+      judge = diff >= 0 ? `予算内でした（${yen(diff)} 余り）` : `${yen(-diff)} 使い過ぎでした`;
+      cls = diff >= 0 ? "ok" : "over";
+      rows.push(["月の予算", yen(monthBudget)], ["使った額", yen(spentSoFar)]);
+    } else {
+      judge = "まだ始まっていない月です"; rows.push(["月の予算", yen(monthBudget)]);
+    }
+    const usedPct = Math.min(100, spentSoFar / monthBudget * 100), markPct = Math.min(100, dayN / days * 100);
+    paceEl.innerHTML = `<div class="pace-head"><b>日々の予算</b><span>${src} ${yen(monthBudget)} ÷ ${days}日</span></div>
+      <div class="pace-judge ${cls}">${judge}</div>
+      ${dayN ? `<div class="pace-track ${diff < 0 ? "over" : ""}"><div class="used" style="width:${usedPct}%"></div><div class="mark" style="left:calc(${markPct}% - 1px)" title="今日までの予算の位置"></div></div>` : ""}
+      <div class="pace-rows">${rows.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join("")}</div>`;
+  }
+
+  // 日々の変動費（グラフ）。点線は1日の予算、予算を超えた日は赤
+  const dmax = Math.max(1, dailyBudget, ...perDay);
+  const todayD = isNow ? today.getDate() : 0;
   document.getElementById("daily").innerHTML = perDay.map((v, i) =>
-    `<div class="d ${i + 1 === todayD ? "today" : ""}" title="${ym.m}/${i + 1} ${yen(v)}"><i style="height:${v / dmax * 100}%"></i></div>`).join("");
+    `<div class="d ${dailyBudget && v > dailyBudget ? "over" : i + 1 === todayD ? "today" : ""}" title="${ym.m}/${i + 1} ${yen(v)}"><i style="height:${v / dmax * 100}%"></i></div>`).join("") +
+    (dailyBudget ? `<div class="limit" style="bottom:${dailyBudget / dmax * 100}%" title="1日の予算 ${yen(Math.floor(dailyBudget))}"></div>` : "");
   document.getElementById("dailyLabels").innerHTML = perDay.map((_, i) =>
     `<span>${(i + 1) === 1 || (i + 1) % 5 === 0 ? i + 1 : ""}</span>`).join("");
   const passed = todayD || (new Date(ym.y, ym.m - 1, 1) < today ? days : 0);
