@@ -73,7 +73,9 @@
   .meter div { height: 100%; background: var(--accent); border-radius: 4px; }
   .meter.over div { background: var(--expense); }
   .hero-sub { font-size: 13px; color: var(--muted); }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
+  .stats .tap { cursor: pointer; outline: 1px dashed var(--line); }
+  #saveSub { margin-top: 8px; }
   .stats div { background: var(--card2); border-radius: 12px; padding: 10px; text-align: center; }
   .stats span { display: block; font-size: 12px; color: var(--muted); }
   .stats b { font-size: 16px; font-variant-numeric: tabular-nums; }
@@ -194,7 +196,7 @@
 
   <!-- 今月のまとめ -->
   <div class="card">
-    <div class="hero-label">今月の残り（収入 − 固定費 − 変動費）</div>
+    <div class="hero-label" id="heroLabel">今月の残り（収入 − 固定費 − 変動費）</div>
     <div class="hero-value" id="remain">¥0</div>
     <div class="meter" id="meter"><div id="meterBar" style="width:0"></div></div>
     <div class="hero-sub" id="heroSub"></div>
@@ -202,7 +204,9 @@
       <div><span>収入</span><b id="sIncome" class="income">¥0</b></div>
       <div><span>固定費</span><b id="sFixed" class="fixedc">¥0</b></div>
       <div><span>変動費</span><b id="sVar" class="expense">¥0</b></div>
+      <div class="tap" id="savingsBtn"><span>貯金（毎月）</span><b id="sSave" class="income">未設定</b></div>
     </div>
+    <div class="hero-sub" id="saveSub" hidden></div>
     <div class="pace" id="pace" hidden></div>
   </div>
 
@@ -258,12 +262,13 @@
 
   <div class="tools">
     <button id="budgetBtn">予算設定</button>
+    <button id="savingsBtn2">貯金の目標</button>
     <button id="exportBtn">CSVで書き出し</button>
     <button id="backupBtn">バックアップ（JSON）</button>
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
-  <p class="version">バージョン 11</p>
+  <p class="version">バージョン 12</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -391,7 +396,19 @@ function render() {
   document.getElementById("monthLabel").textContent = `${ym.y}年${ym.m}月`;
 
   // まとめ
-  const canSpend = t.income - t.fixedExp;          // 変動費に使えるお金
+  const savings = Number(db.budgets.__savings) || 0;   // 毎月の貯金の目標
+  const canSpend = t.income - t.fixedExp - savings;   // 変動費に使えるお金（貯金の分は先に取っておく）
+  document.getElementById("heroLabel").textContent = savings
+    ? "今月の残り（収入 − 固定費 − 貯金 − 変動費）" : "今月の残り（収入 − 固定費 − 変動費）";
+  document.getElementById("sSave").textContent = savings ? yen(savings) : "タップで設定";
+  const saveSub = document.getElementById("saveSub");
+  saveSub.hidden = !savings || (t.income === 0 && t.fixedExp === 0);
+  if (savings) {
+    const saved = t.income - t.fixedExp - t.varExp;   // 今のところ手元に残るお金＝貯金できる額
+    saveSub.innerHTML = saved >= savings
+      ? `<span class="income">貯金 ${yen(savings)} は確保できています</span>（いまのところ ${yen(saved)} 残る見込み）`
+      : `<span class="expense">このままだと貯金が ${yen(savings - Math.max(0, saved))} 足りません</span>（貯金に回せるのは ${yen(Math.max(0, saved))}）`;
+  }
   const remain = canSpend - t.varExp;
   const remainEl = document.getElementById("remain");
   remainEl.textContent = yen(remain);
@@ -419,7 +436,7 @@ function render() {
   const days = new Date(ym.y, ym.m, 0).getDate();
   const isNow = ym.y === today.getFullYear() && ym.m === today.getMonth() + 1;
   const isPast = new Date(ym.y, ym.m, 1) <= today && !isNow;
-  const budgetSum = sum(Object.values(db.budgets), x => Number(x) || 0);
+  const budgetSum = sum(CATS.expense, c => Number(db.budgets[c]) || 0);
   const monthBudget = budgetSum > 0 ? budgetSum : canSpend;   // カテゴリ予算があればその合計、なければ使えるお金
   const dailyBudget = monthBudget > 0 ? monthBudget / days : 0;
   const perDay = Array.from({ length: days }, (_, i) =>
@@ -490,7 +507,7 @@ function render() {
   const fixedRow = x => `<div class="row tap" data-fixed="${x.item.id}">
       <div class="main"><div>${esc(x.item.name)}${x.overridden ? '<span class="tag">今月のみ</span>' : ""}</div><div class="small muted">${esc(x.item.category)}</div></div>
       <div class="num ${x.item.type === "income" ? "income" : "fixedc"}">${x.item.type === "income" ? "+" : "-"}${yen(x.amount)}</div></div>`;
-  document.getElementById("fixedSum").textContent = t.fx.length ? `収入 ${yen(t.fixedIncome)}・支出 ${yen(t.fixedExp)}` : "";
+  document.getElementById("fixedSum").textContent = t.fx.length ? `+${yen(t.fixedIncome)} / -${yen(t.fixedExp)}` : "";
   document.getElementById("fixedList").innerHTML = t.fx.length ?
     (fi.length ? `<div class="sub-title"><span>固定収入</span><span class="num income">${yen(t.fixedIncome)}</span></div>` + fi.map(fixedRow).join("") : "") +
     (fe.length ? `<div class="sub-title"><span>固定費</span><span class="num fixedc">${yen(t.fixedExp)}</span></div>` + fe.map(fixedRow).join("") : "")
@@ -620,7 +637,17 @@ document.getElementById("fixedStop").onclick = () => {
   save(); dlg.close(); render();
 };
 
+// ===== 貯金の目標 =====
+document.getElementById("savingsBtn").onclick = () => {
+  const v = prompt("毎月いくら貯金しますか？（空欄で設定なし）\nこの額を先に取っておいて、残りを変動費の予算にします。", db.budgets.__savings || "");
+  if (v === null) return;
+  const n = Number(v.replace(/[,¥円\s]/g, ""));
+  if (n > 0) db.budgets.__savings = Math.round(n); else delete db.budgets.__savings;
+  save(); render();
+};
+
 // ===== 予算・書き出し・バックアップ =====
+document.getElementById("savingsBtn2").onclick = () => document.getElementById("savingsBtn").click();
 document.getElementById("budgetBtn").onclick = () => {
   for (const c of CATS.expense) {
     const v = prompt(`変動費「${c}」の月の予算（空欄で予算なし）`, db.budgets[c] || "");
