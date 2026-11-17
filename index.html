@@ -280,7 +280,7 @@
     <button id="restoreBtn">バックアップから復元</button>
     <input type="file" id="restoreFile" accept="application/json" hidden>
   </div>
-  <p class="version">バージョン 14</p>
+  <p class="version">バージョン 15</p>
 </div>
 
 <dialog id="fixedDialog">
@@ -334,7 +334,7 @@ function save() {
 
 let db = load();
 window.kakeibo = { get db() { return db; }, set db(v) { db = v; }, save: () => save(), render: () => render() };
-const today = new Date();
+let today = new Date();   // 開きっぱなしでも日付が進むように、下の refreshToday で更新する
 let ym = { y: today.getFullYear(), m: today.getMonth() + 1 };
 const ymKey = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
 const curKey = () => ymKey(ym.y, ym.m);
@@ -718,6 +718,21 @@ document.getElementById("restoreFile").onchange = async e => {
 };
 
 render();
+
+// アプリを開いたまま日付が変わっても、今日の日付で計算し直す
+function refreshToday() {
+  const now = new Date(), oldDay = localDate(today), newDay = localDate(now);
+  if (oldDay === newDay) return;
+  const wasThisMonth = ym.y === today.getFullYear() && ym.m === today.getMonth() + 1;
+  today = now;
+  if (form.date.value === oldDay) form.date.value = newDay;   // 入力欄の日付も今日に
+  if (wasThisMonth) ym = { y: now.getFullYear(), m: now.getMonth() + 1 };
+  render();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshToday(); });
+window.addEventListener("focus", refreshToday);
+window.addEventListener("pageshow", refreshToday);
+setInterval(refreshToday, 60 * 1000);
 
 // ===== レシート読み取り =====
 // 写真は外部に送らず、端末の中で文字認識（Tesseract.js）する。
